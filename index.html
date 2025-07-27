@@ -10,8 +10,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Chosen Palette: Warm Neutrals -->
-    <!-- Application Structure Plan: The application uses a single-page dashboard structure. The main component is a fully editable weekly schedule grid, allowing direct user input. Above the grid, an interactive bar chart visualizes the total number of questions per subject, updating in real-time. A new section below shows a historical comparison using a stacked bar chart. This structure was chosen to provide both an immediate weekly overview and a long-term progress tracking view. Control buttons for saving, resetting, and printing provide a full workflow for planning, recording, and analyzing study habits. Persistence is now handled by localStorage. -->
-    <!-- Visualization & Content Choices: Report Info: Handwritten schedule with subjects and question counts, plus user request for historical comparison and data persistence. Goal: Organize weekly plan, compare workloads, track progress over time, and save data. Viz/Presentation Method: An editable HTML table, a real-time summary bar chart (Chart.js), and a historical stacked bar chart (Chart.js). Interaction: Typing updates the summary chart and saves field state to localStorage. A "Save Week" button captures the current data, stores it persistently in localStorage, and updates the historical chart. Justification: This multi-chart approach with persistence serves all user goals (planning, analysis, and tracking) in a robust, non-volatile application. Library/Method: Tailwind CSS, Vanilla JS, Chart.js. -->
+    <!-- Application Structure Plan: The application uses a single-page dashboard structure. The main component is a fully editable weekly schedule grid. It features a real-time summary chart and a historical stacked bar chart for progress tracking. Persistence is handled by localStorage. A new Gemini API feature provides a performance review of the last saved week, acting as a motivational coach. The table is now fully dynamic, allowing adding/removing rows and editing subject names. API Key is now securely managed via a user input modal and stored in localStorage. -->
+    <!-- Visualization & Content Choices: Report Info: User's study data (subjects, question counts). Goal: Organize, track progress, and get AI-powered motivational feedback with full flexibility and security. Viz/Presentation Method: A fully dynamic HTML table where rows can be added/removed and content edited. Two Chart.js charts (summary and history) that dynamically update based on the table's current state. Interaction: A "Performance Analysis" button calls the Gemini API with the last week's data. The API key is retrieved from localStorage. If not present, a modal prompts the user to enter it. The AI generates a qualitative, encouraging review, which is displayed in a modal. Justification: This feature set provides maximum flexibility and transforms the tool into a personalized, intelligent, and secure study partner. Library/Method: Tailwind CSS, Vanilla JS, Chart.js, Gemini API. -->
     <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
     <style>
         body {
@@ -39,7 +39,7 @@
         .editable-field:focus {
             border-bottom: 1px solid #A5B4FC;
         }
-        [contenteditable=true]:empty:before {
+        [contenteditable=true][placeholder]:empty:before {
             content: attr(placeholder);
             pointer-events: none;
             display: block;
@@ -47,6 +47,34 @@
         }
         .modal-overlay, .toast-notification {
             transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .loader {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #4f46e5;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        .remove-block-btn {
+            opacity: 0;
+            transition: opacity 0.2s;
+            cursor: pointer;
+            position: absolute;
+            top: 4px;
+            right: 4px;
+        }
+        .study-block:hover .remove-block-btn {
+            opacity: 1;
+        }
+        .day-column {
+            flex: 1;
+            min-width: 180px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         @media print {
             html, body {
@@ -59,29 +87,25 @@
                 display: none;
             }
             .print-container {
-                display: flex;
-                flex-direction: column;
-                height: 100%;
-                width: 100%;
+                display: block;
                 box-shadow: none !important;
                 margin: 0 !important;
                 padding: 1rem !important;
                 box-sizing: border-box;
             }
             main {
-                flex-grow: 1;
-                display: flex;
-                flex-direction: column;
+                display: block !important;
                 box-shadow: none !important;
                 border: 1px solid #ddd;
             }
-            table {
-                height: 100%;
-                page-break-inside: avoid;
+            .day-column {
+                display: block;
+                width: 14.28% !important;
+                float: left;
+                box-sizing: border-box;
             }
-            td, th {
-                font-size: 10px;
-                padding: 6px !important;
+            .study-block {
+                page-break-inside: avoid;
             }
         }
     </style>
@@ -106,63 +130,10 @@
              <h1 class="text-xl font-bold">Haftalık Ders Programı</h1>
         </div>
 
-        <main class="bg-white rounded-xl shadow-lg overflow-x-auto">
-            <table class="w-full text-sm text-left">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="p-4 font-semibold text-gray-600">Pazartesi</th>
-                        <th class="p-4 font-semibold text-gray-600">Salı</th>
-                        <th class="p-4 font-semibold text-gray-600">Çarşamba</th>
-                        <th class="p-4 font-semibold text-gray-600">Perşembe</th>
-                        <th class="p-4 font-semibold text-gray-600">Cuma</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    <!-- Rows -->
-                    <tr>
-                        <td class="p-3" data-ders="Kimya"><b>Kimya</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Geometri"><b>Geometri</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Kimya"><b>Kimya</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                    </tr>
-                    <tr>
-                        <td class="p-3" data-ders="Türkçe"><b>Türkçe</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Biyoloji"><b>Biyoloji</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Türkçe"><b>Türkçe</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Biyoloji"><b>Biyoloji</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                    </tr>
-                    <tr>
-                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Kimya"><b>Kimya</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Geometri"><b>Geometri</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Geometri"><b>Geometri</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                    </tr>
-                    <tr>
-                        <td class="p-3" data-ders="Biyoloji"><b>Biyoloji</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                    </tr>
-                    <tr>
-                        <td class="p-3" data-ders="Geometri"><b>Geometri</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Türkçe"><b>Türkçe</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3" data-ders="Türkçe"><b>Türkçe</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3"></td>
-                    </tr>
-                    <tr>
-                        <td class="p-3" data-ders="Biyoloji"><b>Biyoloji</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
-                        <td class="p-3"></td>
-                        <td class="p-3"></td>
-                        <td class="p-3"></td>
-                        <td class="p-3"></td>
-                    </tr>
-                </tbody>
-            </table>
+        <main id="schedule-container" class="bg-white rounded-xl shadow-lg overflow-x-auto">
+            <div class="flex divide-x divide-gray-200">
+                <!-- Day columns will be dynamically generated -->
+            </div>
         </main>
         
         <footer class="mt-8 text-center no-print">
@@ -177,14 +148,25 @@
              <div class="chart-container bg-white rounded-xl shadow-lg p-6">
                 <canvas id="historyChart"></canvas>
             </div>
-            <div class="text-center mt-4">
+            <div class="text-center mt-6 flex justify-center items-center gap-4">
+                <button id="analysisBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 disabled:bg-gray-400">
+                    ✨ Haftalık Performans Analizi
+                    <span id="analysisLoader" class="loader hidden"></span>
+                </button>
                 <button id="clearHistoryBtn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Geçmişi Temizle</button>
+            </div>
+        </section>
+        
+        <section id="settingsSection" class="mt-10 pt-6 border-t border-gray-200 no-print">
+            <h2 class="text-2xl font-semibold text-center text-gray-700 mb-4">Ayarlar</h2>
+            <div class="text-center">
+                 <button id="apiKeyBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">API Anahtarını Yönet</button>
             </div>
         </section>
     </div>
 
     <!-- Modals -->
-    <div id="resetModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 modal-overlay hidden no-print">
+    <div id="resetModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 modal-overlay hidden no-print z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center">
             <h3 class="text-lg font-semibold text-gray-800 mb-2">Emin misiniz?</h3>
             <p class="text-gray-600 mb-6">Mevcut tablo temizlenecek. Bu işlem geri alınamaz.</p>
@@ -194,7 +176,7 @@
             </div>
         </div>
     </div>
-    <div id="clearHistoryModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 modal-overlay hidden no-print">
+    <div id="clearHistoryModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 modal-overlay hidden no-print z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center">
             <h3 class="text-lg font-semibold text-gray-800 mb-2">Tüm Geçmişi Sil?</h3>
             <p class="text-gray-600 mb-6">Tüm kayıtlı haftalar kalıcı olarak silinecek. Bu işlem geri alınamaz.</p>
@@ -204,64 +186,97 @@
             </div>
         </div>
     </div>
+    <div id="analysisModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 modal-overlay hidden no-print z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">✨ Haftalık Analizin</h3>
+                <button id="closeAnalysisModal" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+            </div>
+            <div id="analysisResult" class="text-gray-700 leading-relaxed"></div>
+        </div>
+    </div>
+    <div id="apiKeyModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 modal-overlay hidden no-print z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">Gemini API Anahtarı</h3>
+                <button id="closeApiKeyModal" class="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+            </div>
+            <p class="text-gray-600 mb-4 text-sm">Performans analizi özelliğini kullanmak için lütfen Google AI Studio'dan aldığınız Gemini API anahtarınızı girin. Bu anahtar sadece sizin tarayıcınızda saklanacaktır.</p>
+            <div>
+                <label for="apiKeyInput" class="block text-sm font-medium text-gray-700">API Anahtarınız</label>
+                <input type="password" id="apiKeyInput" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+            </div>
+            <div class="mt-6 text-right">
+                <button id="saveApiKeyBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Kaydet</button>
+            </div>
+        </div>
+    </div>
     
     <!-- Toast Notification -->
-    <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 text-white py-2 px-4 rounded-lg shadow-lg transform translate-y-20 opacity-0 toast-notification no-print"></div>
+    <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 text-white py-2 px-4 rounded-lg shadow-lg transform translate-y-20 opacity-0 toast-notification no-print z-50"></div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            const dersler = ["Matematik", "Fizik", "Kimya", "Biyoloji", "Türkçe", "Geometri"];
-            const chartColors = {
-                "Matematik": 'rgba(239, 68, 68, 0.7)', "Fizik": 'rgba(59, 130, 246, 0.7)', "Kimya": 'rgba(245, 158, 11, 0.7)',
-                "Biyoloji": 'rgba(16, 185, 129, 0.7)', "Türkçe": 'rgba(139, 92, 246, 0.7)', "Geometri": 'rgba(249, 115, 22, 0.7)'
-            };
-            
+            const PREDEFINED_COLORS = ['rgba(239, 68, 68, 0.7)', 'rgba(59, 130, 246, 0.7)', 'rgba(245, 158, 11, 0.7)', 'rgba(16, 185, 129, 0.7)', 'rgba(139, 92, 246, 0.7)', 'rgba(249, 115, 22, 0.7)', 'rgba(217, 70, 239, 0.7)', 'rgba(34, 197, 94, 0.7)'];
             let weeklyHistory = [];
-            const allEditableFields = document.querySelectorAll('.editable-field');
-            
-            // Summary Chart
+            const scheduleContainer = document.getElementById('schedule-container').firstElementChild;
+
+            // Charts
             const summaryCtx = document.getElementById('summaryChart').getContext('2d');
-            const summaryChart = new Chart(summaryCtx, {
-                type: 'bar', data: { labels: dersler, datasets: [{ label: 'Toplam Soru Sayısı', data: [], backgroundColor: dersler.map(d => chartColors[d]) }] },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
-            });
-
-            // History Chart
+            const summaryChart = new Chart(summaryCtx, { type: 'bar', data: { labels: [], datasets: [{ label: 'Toplam Soru Sayısı', data: [] }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } } });
             const historyCtx = document.getElementById('historyChart').getContext('2d');
-            const historyChart = new Chart(historyCtx, {
-                type: 'bar', data: { labels: [], datasets: [] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
-            });
+            const historyChart = new Chart(historyCtx, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } } });
 
-            function getCurrentWeekTotals() {
-                const totals = dersler.reduce((acc, ders) => ({ ...acc, [ders]: 0 }), {});
-                document.querySelectorAll('td[data-ders]').forEach(cell => {
-                    const dersAdi = cell.getAttribute('data-ders');
-                    const questionInput = cell.querySelector('.question-field');
-                    if (questionInput) {
-                        const value = parseInt(questionInput.innerText, 10) || 0;
-                        if (totals.hasOwnProperty(dersAdi)) totals[dersAdi] += value;
+            // Dynamic Subject and Color Management
+            function getUniqueSubjects() {
+                const subjects = new Set();
+                scheduleContainer.querySelectorAll('.ders-adi').forEach(el => {
+                    if (el.innerText.trim()) subjects.add(el.innerText.trim());
+                });
+                return Array.from(subjects);
+            }
+
+            function getChartColor(subject, index) {
+                return PREDEFINED_COLORS[index % PREDEFINED_COLORS.length];
+            }
+
+            // Core Functions
+            function updateCharts() {
+                const subjects = getUniqueSubjects();
+                const subjectColors = subjects.map(getChartColor);
+
+                const summaryTotals = subjects.reduce((acc, s) => ({ ...acc, [s]: 0 }), {});
+                scheduleContainer.querySelectorAll('.study-block').forEach(block => {
+                    const subjectEl = block.querySelector('.ders-adi');
+                    const questionEl = block.querySelector('.question-field');
+                    if (subjectEl && questionEl && subjectEl.innerText.trim()) {
+                        const subject = subjectEl.innerText.trim();
+                        const value = parseInt(questionEl.innerText, 10) || 0;
+                        if (summaryTotals.hasOwnProperty(subject)) summaryTotals[subject] += value;
                     }
                 });
-                return totals;
-            }
-
-            function updateSummaryChart() {
-                const totals = getCurrentWeekTotals();
-                summaryChart.data.datasets[0].data = dersler.map(ders => totals[ders]);
+                summaryChart.data.labels = subjects;
+                summaryChart.data.datasets[0].data = subjects.map(s => summaryTotals[s]);
+                summaryChart.data.datasets[0].backgroundColor = subjectColors;
                 summaryChart.update();
-            }
 
-            function updateHistoryChart() {
                 const historySection = document.getElementById('historySection');
+                const analysisBtn = document.getElementById('analysisBtn');
                 if (weeklyHistory.length === 0) {
                     historySection.classList.add('hidden');
+                    analysisBtn.disabled = true;
                     return;
                 }
                 historySection.classList.remove('hidden');
+                analysisBtn.disabled = false;
+                
+                const allHistorySubjects = Array.from(new Set(weeklyHistory.flatMap(week => Object.keys(week))));
+                
                 historyChart.data.labels = weeklyHistory.map((_, i) => `Hafta ${i + 1}`);
-                historyChart.data.datasets = dersler.map(ders => ({
-                    label: ders, data: weeklyHistory.map(weekData => weekData[ders] || 0), backgroundColor: chartColors[ders],
+                historyChart.data.datasets = allHistorySubjects.map((subject, index) => ({
+                    label: subject,
+                    data: weeklyHistory.map(weekData => weekData[subject] || 0),
+                    backgroundColor: getChartColor(subject, index),
                 }));
                 historyChart.update();
             }
@@ -273,81 +288,199 @@
                 setTimeout(() => toast.classList.add('opacity-0', 'translate-y-20'), 3000);
             }
 
+            // Data Persistence
             function saveData() {
                 localStorage.setItem('weeklyPlannerHistory', JSON.stringify(weeklyHistory));
-                allEditableFields.forEach((field, index) => {
-                    if (field.innerText) {
-                        localStorage.setItem(`plannerField_${index}`, field.innerText);
-                    } else {
-                        localStorage.removeItem(`plannerField_${index}`);
-                    }
-                });
+                localStorage.setItem('weeklyPlannerSchedule', scheduleContainer.innerHTML);
             }
 
             function loadData() {
                 const savedHistory = localStorage.getItem('weeklyPlannerHistory');
-                if (savedHistory) {
-                    weeklyHistory = JSON.parse(savedHistory);
+                if (savedHistory) weeklyHistory = JSON.parse(savedHistory);
+                
+                const savedSchedule = localStorage.getItem('weeklyPlannerSchedule');
+                if (savedSchedule) {
+                    scheduleContainer.innerHTML = savedSchedule;
+                } else {
+                    const days = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
+                    days.forEach(day => {
+                        const dayCol = createDayColumn(day);
+                        scheduleContainer.appendChild(dayCol);
+                        addStudyBlock(dayCol.querySelector('.day-content'));
+                    });
                 }
-                allEditableFields.forEach((field, index) => {
-                    const savedValue = localStorage.getItem(`plannerField_${index}`);
-                    if (savedValue) {
-                        field.innerText = savedValue;
-                    }
-                });
-                updateSummaryChart();
-                updateHistoryChart();
+                updateCharts();
             }
 
-            allEditableFields.forEach((field, index) => {
-                field.addEventListener('input', () => {
-                    localStorage.setItem(`plannerField_${index}`, field.innerText);
-                    if (field.classList.contains('question-field')) {
-                        updateSummaryChart();
+            // Gemini API Call for Analysis
+            async function getPerformanceReview() {
+                const apiKey = localStorage.getItem('geminiApiKey');
+                if (!apiKey) {
+                    showToast("Lütfen önce API anahtarınızı girin.");
+                    document.getElementById('apiKeyModal').classList.remove('hidden');
+                    return;
+                }
+
+                if (weeklyHistory.length === 0) {
+                    showToast("Analiz için önce en az bir hafta kaydetmelisiniz.");
+                    return;
+                }
+                const loader = document.getElementById('analysisLoader');
+                const analysisBtn = document.getElementById('analysisBtn');
+                loader.classList.remove('hidden');
+                analysisBtn.disabled = true;
+
+                const lastWeekData = weeklyHistory[weeklyHistory.length - 1];
+                const dataString = Object.entries(lastWeekData)
+                    .filter(([_, value]) => value > 0)
+                    .map(([key, value]) => `${key}: ${value} soru`)
+                    .join(', ');
+                
+                if (!dataString) {
+                     showToast("Analiz için kaydedilmiş soru sayısı bulunamadı.");
+                     loader.classList.add('hidden');
+                     analysisBtn.disabled = false;
+                     return;
+                }
+
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                const prompt = `Sen bir motive edici öğrenci koçusun. Bir lise öğrencisinin geçen haftaki ders çalışma performansı şu şekilde: ${dataString}. Bu veriye dayanarak öğrenciye kısa (3-4 cümlelik), pozitif ve yapıcı bir geri bildirim yaz. Güçlü olduğu bir alanı öv, dengesiz bir çalışma varsa nazikçe gelecek hafta için bir öneride bulun ve genel olarak motive edici bir dille bitir.`;
+
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+                    if (!response.ok) {
+                         const errorBody = await response.json();
+                         throw new Error(`API isteği başarısız: ${errorBody.error.message || response.statusText}`);
                     }
-                });
-            });
+                    const result = await response.json();
+                    if (result.candidates && result.candidates[0].content.parts[0].text) {
+                        const analysisText = result.candidates[0].content.parts[0].text;
+                        document.getElementById('analysisResult').innerText = analysisText;
+                        document.getElementById('analysisModal').classList.remove('hidden');
+                    } else {
+                        throw new Error('Geçersiz API yanıtı yapısı');
+                    }
+                } catch (error) {
+                    console.error("Gemini API Hatası:", error);
+                    showToast(`Analiz alınamadı. Hata: ${error.message}`);
+                } finally {
+                    loader.classList.add('hidden');
+                    analysisBtn.disabled = false;
+                }
+            }
             
-            // Modal Logic
-            const resetModal = document.getElementById('resetModal');
-            document.getElementById('resetBtn').addEventListener('click', () => resetModal.classList.remove('hidden'));
-            document.getElementById('cancelResetBtn').addEventListener('click', () => resetModal.classList.add('hidden'));
-            document.getElementById('confirmResetBtn').addEventListener('click', () => {
-                allEditableFields.forEach((field, index) => {
-                    field.innerText = '';
-                    localStorage.removeItem(`plannerField_${index}`);
-                });
-                updateSummaryChart();
-                resetModal.classList.add('hidden');
+            function createDayColumn(dayName) {
+                const col = document.createElement('div');
+                col.className = 'day-column border-r border-gray-200 last:border-r-0';
+                col.innerHTML = `
+                    <h3 class="p-4 font-semibold text-gray-600 text-center bg-gray-50">${dayName}</h3>
+                    <div class="day-content p-2 space-y-2"></div>
+                    <div class="p-2 text-center no-print">
+                        <button class="add-block-btn w-full text-center py-2 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors">+ Ekle</button>
+                    </div>
+                `;
+                return col;
+            }
+            
+            function addStudyBlock(dayContentElement) {
+                const block = document.createElement('div');
+                block.className = "study-block relative p-3 border border-gray-200 rounded-lg group";
+                block.innerHTML = `
+                    <button class="remove-block-btn text-red-500 hover:text-red-700 font-bold no-print">&times;</button>
+                    <b class="ders-adi editable-field" contenteditable="true" placeholder="Ders Adı"></b>
+                    <div class="editable-field konu-field" contenteditable="true" placeholder="Konu girin..."></div>
+                    <div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div>
+                `;
+                dayContentElement.appendChild(block);
+            }
+
+            // Event Listeners
+            scheduleContainer.addEventListener('input', (e) => {
+                if (e.target.matches('.editable-field') || e.target.matches('.ders-adi')) {
+                    updateCharts();
+                    saveData();
+                }
             });
 
-            const clearHistoryModal = document.getElementById('clearHistoryModal');
-            document.getElementById('clearHistoryBtn').addEventListener('click', () => clearHistoryModal.classList.remove('hidden'));
-            document.getElementById('cancelClearHistoryBtn').addEventListener('click', () => clearHistoryModal.classList.add('hidden'));
+            scheduleContainer.addEventListener('click', (e) => {
+                if (e.target.matches('.add-block-btn')) {
+                    const dayContent = e.target.closest('.day-column').querySelector('.day-content');
+                    addStudyBlock(dayContent);
+                    saveData();
+                }
+                if (e.target.matches('.remove-block-btn')) {
+                    e.target.closest('.study-block').remove();
+                    updateCharts();
+                    saveData();
+                }
+            });
+
+            document.getElementById('resetBtn').addEventListener('click', () => document.getElementById('resetModal').classList.remove('hidden'));
+            document.getElementById('cancelResetBtn').addEventListener('click', () => document.getElementById('resetModal').classList.add('hidden'));
+            document.getElementById('confirmResetBtn').addEventListener('click', () => {
+                scheduleContainer.innerHTML = '';
+                loadData();
+                updateCharts();
+                saveData();
+                document.getElementById('resetModal').classList.add('hidden');
+            });
+
+            document.getElementById('clearHistoryBtn').addEventListener('click', () => document.getElementById('clearHistoryModal').classList.remove('hidden'));
+            document.getElementById('cancelClearHistoryBtn').addEventListener('click', () => document.getElementById('clearHistoryModal').classList.add('hidden'));
             document.getElementById('confirmClearHistoryBtn').addEventListener('click', () => {
                 weeklyHistory = [];
-                localStorage.removeItem('weeklyPlannerHistory');
-                updateHistoryChart();
-                clearHistoryModal.classList.add('hidden');
+                updateCharts();
+                saveData();
+                document.getElementById('clearHistoryModal').classList.add('hidden');
                 showToast('Tüm geçmiş veriler silindi.');
             });
 
-            // Save Week Logic
             document.getElementById('saveWeekBtn').addEventListener('click', () => {
-                const weeklyTotals = getCurrentWeekTotals();
+                const subjects = getUniqueSubjects();
+                const weeklyTotals = subjects.reduce((acc, s) => ({ ...acc, [s]: 0 }), {});
+                 scheduleContainer.querySelectorAll('.study-block').forEach(block => {
+                    const subjectEl = block.querySelector('.ders-adi');
+                    const questionEl = block.querySelector('.question-field');
+                    if (subjectEl && questionEl && subjectEl.innerText.trim()) {
+                        const subject = subjectEl.innerText.trim();
+                        const value = parseInt(questionEl.innerText, 10) || 0;
+                        if (weeklyTotals.hasOwnProperty(subject)) weeklyTotals[subject] += value;
+                    }
+                });
+
                 const totalQuestions = Object.values(weeklyTotals).reduce((sum, val) => sum + val, 0);
                 if (totalQuestions === 0) {
                     showToast('Kaydedilecek veri yok. Lütfen soru sayılarını girin.');
                     return;
                 }
                 weeklyHistory.push(weeklyTotals);
-                localStorage.setItem('weeklyPlannerHistory', JSON.stringify(weeklyHistory));
-                updateHistoryChart();
+                updateCharts();
+                saveData();
                 showToast(`Hafta ${weeklyHistory.length} başarıyla kaydedildi!`);
             });
 
-            // Print Logic
             document.getElementById('printBtn').addEventListener('click', () => window.print());
+            document.getElementById('analysisBtn').addEventListener('click', getPerformanceReview);
+            document.getElementById('closeAnalysisModal').addEventListener('click', () => document.getElementById('analysisModal').classList.add('hidden'));
+            
+            const apiKeyModal = document.getElementById('apiKeyModal');
+            document.getElementById('apiKeyBtn').addEventListener('click', () => apiKeyModal.classList.remove('hidden'));
+            document.getElementById('closeApiKeyModal').addEventListener('click', () => apiKeyModal.classList.add('hidden'));
+            document.getElementById('saveApiKeyBtn').addEventListener('click', () => {
+                const apiKeyInput = document.getElementById('apiKeyInput');
+                const newKey = apiKeyInput.value.trim();
+                if (newKey) {
+                    localStorage.setItem('geminiApiKey', newKey);
+                    showToast('API Anahtarı başarıyla kaydedildi!');
+                    apiKeyModal.classList.add('hidden');
+                } else {
+                    showToast('Lütfen geçerli bir anahtar girin.');
+                }
+            });
 
             // Initial Load
             loadData();
