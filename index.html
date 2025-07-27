@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>İnteraktif Haftalık Ders Programı</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Warm Neutrals -->
+    <!-- Application Structure Plan: The application uses a single-page dashboard structure. The main component is a fully editable weekly schedule grid, allowing direct user input. Above the grid, an interactive bar chart visualizes the total number of questions per subject, updating in real-time. A new section below shows a historical comparison using a stacked bar chart. This structure was chosen to provide both an immediate weekly overview and a long-term progress tracking view. Control buttons for saving, resetting, and printing provide a full workflow for planning, recording, and analyzing study habits. Persistence is now handled by localStorage. -->
+    <!-- Visualization & Content Choices: Report Info: Handwritten schedule with subjects and question counts, plus user request for historical comparison and data persistence. Goal: Organize weekly plan, compare workloads, track progress over time, and save data. Viz/Presentation Method: An editable HTML table, a real-time summary bar chart (Chart.js), and a historical stacked bar chart (Chart.js). Interaction: Typing updates the summary chart and saves field state to localStorage. A "Save Week" button captures the current data, stores it persistently in localStorage, and updates the historical chart. Justification: This multi-chart approach with persistence serves all user goals (planning, analysis, and tracking) in a robust, non-volatile application. Library/Method: Tailwind CSS, Vanilla JS, Chart.js. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #FDFBF7;
+            color: #4A4A4A;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            max-height: 40vh;
+            width: 100%;
+            max-width: 800px;
+            margin: auto;
+        }
+        .editable-field {
+            display: block;
+            width: 100%;
+            padding: 4px 2px;
+            margin-top: 4px;
+            border-bottom: 1px dashed #D1D5DB;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .editable-field:focus {
+            border-bottom: 1px solid #A5B4FC;
+        }
+        [contenteditable=true]:empty:before {
+            content: attr(placeholder);
+            pointer-events: none;
+            display: block;
+            color: #9CA3AF;
+        }
+        .modal-overlay, .toast-notification {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        @media print {
+            html, body {
+                height: 100%;
+                margin: 0;
+                padding: 0;
+                background-color: #fff;
+            }
+            .no-print {
+                display: none;
+            }
+            .print-container {
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+                width: 100%;
+                box-shadow: none !important;
+                margin: 0 !important;
+                padding: 1rem !important;
+                box-sizing: border-box;
+            }
+            main {
+                flex-grow: 1;
+                display: flex;
+                flex-direction: column;
+                box-shadow: none !important;
+                border: 1px solid #ddd;
+            }
+            table {
+                height: 100%;
+                page-break-inside: avoid;
+            }
+            td, th {
+                font-size: 10px;
+                padding: 6px !important;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 print-container">
+        <header class="text-center mb-8 no-print">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-800">İnteraktif Haftalık Ders Programı</h1>
+            <p class="mt-2 text-lg text-gray-600">Konu ve soru sayılarını doğrudan tabloya yazarak haftalık planınızı oluşturun.</p>
+        </header>
+
+        <section class="mb-8 p-6 bg-white rounded-xl shadow-lg no-print">
+            <h2 class="text-2xl font-semibold text-center text-gray-700 mb-4">Bu Haftanın Soru Dağılımı</h2>
+            <p class="text-center text-gray-500 mb-6">Soru sayılarını tabloya girdikçe bu grafik anlık olarak güncellenir.</p>
+            <div class="chart-container">
+                <canvas id="summaryChart"></canvas>
+            </div>
+        </section>
+        
+        <div class="hidden print:block text-center mb-4">
+             <h1 class="text-xl font-bold">Haftalık Ders Programı</h1>
+        </div>
+
+        <main class="bg-white rounded-xl shadow-lg overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="p-4 font-semibold text-gray-600">Pazartesi</th>
+                        <th class="p-4 font-semibold text-gray-600">Salı</th>
+                        <th class="p-4 font-semibold text-gray-600">Çarşamba</th>
+                        <th class="p-4 font-semibold text-gray-600">Perşembe</th>
+                        <th class="p-4 font-semibold text-gray-600">Cuma</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    <!-- Rows -->
+                    <tr>
+                        <td class="p-3" data-ders="Kimya"><b>Kimya</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Geometri"><b>Geometri</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Kimya"><b>Kimya</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                    </tr>
+                    <tr>
+                        <td class="p-3" data-ders="Türkçe"><b>Türkçe</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Biyoloji"><b>Biyoloji</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Türkçe"><b>Türkçe</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Biyoloji"><b>Biyoloji</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                    </tr>
+                    <tr>
+                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Kimya"><b>Kimya</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Geometri"><b>Geometri</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Geometri"><b>Geometri</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                    </tr>
+                    <tr>
+                        <td class="p-3" data-ders="Biyoloji"><b>Biyoloji</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Matematik"><b>Matematik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                    </tr>
+                    <tr>
+                        <td class="p-3" data-ders="Geometri"><b>Geometri</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Fizik"><b>Fizik</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Türkçe"><b>Türkçe</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3" data-ders="Türkçe"><b>Türkçe</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3"></td>
+                    </tr>
+                    <tr>
+                        <td class="p-3" data-ders="Biyoloji"><b>Biyoloji</b><div class="editable-field" contenteditable="true" placeholder="Konu girin..."></div><div class="editable-field question-field" contenteditable="true" placeholder="Soru sayısı..." inputmode="numeric"></div></td>
+                        <td class="p-3"></td>
+                        <td class="p-3"></td>
+                        <td class="p-3"></td>
+                        <td class="p-3"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </main>
+        
+        <footer class="mt-8 text-center no-print">
+            <button id="saveWeekBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Haftayı Kaydet</button>
+            <button id="resetBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition-colors ml-4">Tabloyu Sıfırla</button>
+            <button id="printBtn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg transition-colors ml-4">Yazdır / PDF Olarak Kaydet</button>
+        </footer>
+
+        <section id="historySection" class="mt-10 pt-6 border-t border-gray-200 no-print hidden">
+             <h2 class="text-2xl font-semibold text-center text-gray-700 mb-4">Haftalık İlerleme Grafiği</h2>
+             <p class="text-center text-gray-500 mb-6">Kaydettiğiniz haftaların karşılaştırmalı soru sayılarını burada görebilirsiniz.</p>
+             <div class="chart-container bg-white rounded-xl shadow-lg p-6">
+                <canvas id="historyChart"></canvas>
+            </div>
+            <div class="text-center mt-4">
+                <button id="clearHistoryBtn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Geçmişi Temizle</button>
+            </div>
+        </section>
+    </div>
+
+    <!-- Modals -->
+    <div id="resetModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 modal-overlay hidden no-print">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center">
+            <h3 class="text-lg font-semibold text-gray-800 mb-2">Emin misiniz?</h3>
+            <p class="text-gray-600 mb-6">Mevcut tablo temizlenecek. Bu işlem geri alınamaz.</p>
+            <div class="flex justify-center gap-4">
+                <button id="cancelResetBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-6 rounded-lg transition-colors">İptal</button>
+                <button id="confirmResetBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">Sıfırla</button>
+            </div>
+        </div>
+    </div>
+    <div id="clearHistoryModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 modal-overlay hidden no-print">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center">
+            <h3 class="text-lg font-semibold text-gray-800 mb-2">Tüm Geçmişi Sil?</h3>
+            <p class="text-gray-600 mb-6">Tüm kayıtlı haftalar kalıcı olarak silinecek. Bu işlem geri alınamaz.</p>
+            <div class="flex justify-center gap-4">
+                <button id="cancelClearHistoryBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-6 rounded-lg transition-colors">İptal</button>
+                <button id="confirmClearHistoryBtn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">Evet, Sil</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 text-white py-2 px-4 rounded-lg shadow-lg transform translate-y-20 opacity-0 toast-notification no-print"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const dersler = ["Matematik", "Fizik", "Kimya", "Biyoloji", "Türkçe", "Geometri"];
+            const chartColors = {
+                "Matematik": 'rgba(239, 68, 68, 0.7)', "Fizik": 'rgba(59, 130, 246, 0.7)', "Kimya": 'rgba(245, 158, 11, 0.7)',
+                "Biyoloji": 'rgba(16, 185, 129, 0.7)', "Türkçe": 'rgba(139, 92, 246, 0.7)', "Geometri": 'rgba(249, 115, 22, 0.7)'
+            };
+            
+            let weeklyHistory = [];
+            const allEditableFields = document.querySelectorAll('.editable-field');
+            
+            // Summary Chart
+            const summaryCtx = document.getElementById('summaryChart').getContext('2d');
+            const summaryChart = new Chart(summaryCtx, {
+                type: 'bar', data: { labels: dersler, datasets: [{ label: 'Toplam Soru Sayısı', data: [], backgroundColor: dersler.map(d => chartColors[d]) }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+            });
+
+            // History Chart
+            const historyCtx = document.getElementById('historyChart').getContext('2d');
+            const historyChart = new Chart(historyCtx, {
+                type: 'bar', data: { labels: [], datasets: [] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+            });
+
+            function getCurrentWeekTotals() {
+                const totals = dersler.reduce((acc, ders) => ({ ...acc, [ders]: 0 }), {});
+                document.querySelectorAll('td[data-ders]').forEach(cell => {
+                    const dersAdi = cell.getAttribute('data-ders');
+                    const questionInput = cell.querySelector('.question-field');
+                    if (questionInput) {
+                        const value = parseInt(questionInput.innerText, 10) || 0;
+                        if (totals.hasOwnProperty(dersAdi)) totals[dersAdi] += value;
+                    }
+                });
+                return totals;
+            }
+
+            function updateSummaryChart() {
+                const totals = getCurrentWeekTotals();
+                summaryChart.data.datasets[0].data = dersler.map(ders => totals[ders]);
+                summaryChart.update();
+            }
+
+            function updateHistoryChart() {
+                const historySection = document.getElementById('historySection');
+                if (weeklyHistory.length === 0) {
+                    historySection.classList.add('hidden');
+                    return;
+                }
+                historySection.classList.remove('hidden');
+                historyChart.data.labels = weeklyHistory.map((_, i) => `Hafta ${i + 1}`);
+                historyChart.data.datasets = dersler.map(ders => ({
+                    label: ders, data: weeklyHistory.map(weekData => weekData[ders] || 0), backgroundColor: chartColors[ders],
+                }));
+                historyChart.update();
+            }
+            
+            function showToast(message) {
+                const toast = document.getElementById('toast');
+                toast.innerText = message;
+                toast.classList.remove('opacity-0', 'translate-y-20');
+                setTimeout(() => toast.classList.add('opacity-0', 'translate-y-20'), 3000);
+            }
+
+            function saveData() {
+                localStorage.setItem('weeklyPlannerHistory', JSON.stringify(weeklyHistory));
+                allEditableFields.forEach((field, index) => {
+                    if (field.innerText) {
+                        localStorage.setItem(`plannerField_${index}`, field.innerText);
+                    } else {
+                        localStorage.removeItem(`plannerField_${index}`);
+                    }
+                });
+            }
+
+            function loadData() {
+                const savedHistory = localStorage.getItem('weeklyPlannerHistory');
+                if (savedHistory) {
+                    weeklyHistory = JSON.parse(savedHistory);
+                }
+                allEditableFields.forEach((field, index) => {
+                    const savedValue = localStorage.getItem(`plannerField_${index}`);
+                    if (savedValue) {
+                        field.innerText = savedValue;
+                    }
+                });
+                updateSummaryChart();
+                updateHistoryChart();
+            }
+
+            allEditableFields.forEach((field, index) => {
+                field.addEventListener('input', () => {
+                    localStorage.setItem(`plannerField_${index}`, field.innerText);
+                    if (field.classList.contains('question-field')) {
+                        updateSummaryChart();
+                    }
+                });
+            });
+            
+            // Modal Logic
+            const resetModal = document.getElementById('resetModal');
+            document.getElementById('resetBtn').addEventListener('click', () => resetModal.classList.remove('hidden'));
+            document.getElementById('cancelResetBtn').addEventListener('click', () => resetModal.classList.add('hidden'));
+            document.getElementById('confirmResetBtn').addEventListener('click', () => {
+                allEditableFields.forEach((field, index) => {
+                    field.innerText = '';
+                    localStorage.removeItem(`plannerField_${index}`);
+                });
+                updateSummaryChart();
+                resetModal.classList.add('hidden');
+            });
+
+            const clearHistoryModal = document.getElementById('clearHistoryModal');
+            document.getElementById('clearHistoryBtn').addEventListener('click', () => clearHistoryModal.classList.remove('hidden'));
+            document.getElementById('cancelClearHistoryBtn').addEventListener('click', () => clearHistoryModal.classList.add('hidden'));
+            document.getElementById('confirmClearHistoryBtn').addEventListener('click', () => {
+                weeklyHistory = [];
+                localStorage.removeItem('weeklyPlannerHistory');
+                updateHistoryChart();
+                clearHistoryModal.classList.add('hidden');
+                showToast('Tüm geçmiş veriler silindi.');
+            });
+
+            // Save Week Logic
+            document.getElementById('saveWeekBtn').addEventListener('click', () => {
+                const weeklyTotals = getCurrentWeekTotals();
+                const totalQuestions = Object.values(weeklyTotals).reduce((sum, val) => sum + val, 0);
+                if (totalQuestions === 0) {
+                    showToast('Kaydedilecek veri yok. Lütfen soru sayılarını girin.');
+                    return;
+                }
+                weeklyHistory.push(weeklyTotals);
+                localStorage.setItem('weeklyPlannerHistory', JSON.stringify(weeklyHistory));
+                updateHistoryChart();
+                showToast(`Hafta ${weeklyHistory.length} başarıyla kaydedildi!`);
+            });
+
+            // Print Logic
+            document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+            // Initial Load
+            loadData();
+        });
+    </script>
+
+</body>
+</html>
